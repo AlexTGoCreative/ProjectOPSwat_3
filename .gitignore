@@ -1,0 +1,25 @@
+# Node dependencies
+node_modules/
+node_modules/.bin/
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# Auth and token files
+jwt.txt
+oauth.txt
+
+# Package lock (opțional, dacă nu vrei să fie versionat)
+package-lock.json
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Misc
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
