@@ -3,25 +3,24 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+const { validateOAuthClient } = require('../database/db');
 
-router.post('/token', (req, res) => {
+router.post('/token', async (req, res) => {
   const clientId = req.headers['client_id'] || req.headers['client-id'];
   const clientSecret = req.headers['client_secret'] || req.headers['client-secret'];
   if (!clientId || !clientSecret) {
     return res.status(400).json({ error: 'Missing client_id or client_secret in headers' });
   }
 
-  const oauthPath = path.join(__dirname, '../../oauth.txt');
-  if (!fs.existsSync(oauthPath)) {
-    return res.status(500).json({ error: 'oauth.txt file not found' });
-  }
-  const clients = fs.readFileSync(oauthPath, 'utf-8').split('\n').map(line => line.trim()).filter(Boolean);
-  const valid = clients.some(line => {
-    const [id, secret] = line.split(':');
-    return id === clientId && secret === clientSecret;
-  });
-  if (!valid) {
-    return res.status(401).json({ error: 'Invalid client_id or client_secret' });
+  // Phase 2: Use PostgreSQL instead of oauth.txt file
+  try {
+    const isValid = await validateOAuthClient(clientId, clientSecret);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid client_id or client_secret' });
+    }
+  } catch (error) {
+    console.error('Database error during OAuth validation:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 
   const payload = { client_id: clientId };
