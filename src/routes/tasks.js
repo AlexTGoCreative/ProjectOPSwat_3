@@ -1,48 +1,12 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
 const router = express.Router();
+const { validateToken, revokeToken } = require('../utils/jwtUtils');
+const { client: redisClient, connectRedis } = require('../redisClient');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here';
-
-function readStoredTokens() {
-  try {
-    const jwtFilePath = path.join(__dirname, '../../jwt.txt');
-    if (!fs.existsSync(jwtFilePath)) {
-      console.warn('jwt.txt file does not exist at', jwtFilePath);
-      return [];
-    }
-    const content = fs.readFileSync(jwtFilePath, 'utf8');
-    return content.split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const [token, expiry] = line.split(':');
-        if (!token || !expiry || isNaN(parseInt(expiry))) {
-          return null;
-        }
-        return { token: token.trim(), expiry: parseInt(expiry) };
-      })
-      .filter(Boolean);
-  } catch (error) {
-    console.error('Error reading jwt.txt:', error);
-    return [];
-  }
-}
-
-function isTokenValid(token) {
-  const storedTokens = readStoredTokens();
-  const now = Date.now();
-  
-  return storedTokens.some(stored => 
-    stored.token === token && stored.expiry > now
-  );
-}
-
-function validateJWT(req, res, next) {
+// JWT validation middleware
+async function validateJWT(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
-    
     if (!authHeader) {
       return res.status(401).json({
         error: 'Authorization header missing',
@@ -50,8 +14,8 @@ function validateJWT(req, res, next) {
       });
     }
 
-    const token = authHeader.startsWith('Bearer ') 
-      ? authHeader.slice(7) 
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
       : authHeader;
 
     if (!token) {
@@ -61,51 +25,96 @@ function validateJWT(req, res, next) {
       });
     }
 
-    console.log('Validating token:', token);
-
-    if (!isTokenValid(token)) {
-      return res.status(401).json({
-        error: 'Token invalid or expired',
-        message: 'Token not found in valid tokens or has expired'
-      });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const validation = await validateToken(token);
     
-    req.user = decoded;
-    next();
-
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
+    if (!validation.valid) {
       return res.status(401).json({
-        error: 'Token expired',
-        message: 'JWT token has expired'
-      });
-    } else if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        error: 'Invalid token',
-        message: 'JWT token is invalid'
-      });
-    } else {
-      return res.status(500).json({
-        error: 'Token validation error',
-        message: error.message
+        error: 'Token validation failed',
+        message: validation.error
       });
     }
+
+    req.user = validation.decoded;
+    req.tokenMetadata = validation.metadata;
+    next();
+  } catch (error) {
+    console.error('Token validation error:', error);
+    return res.status(500).json({
+      error: 'Token validation error',
+      message: 'An error occurred while validating the token'
+    });
   }
 }
 
-router.get('/data', validateJWT, (req, res) => {
-  res.json({
-    message: 'Successfully authenticated',
-    user: req.user,
-    data: [
-      { id: 1, title: 'Complete OAuth implementation', status: 'pending' },
-      { id: 2, title: 'Implement JWT validation', status: 'in-progress' },
-      { id: 3, title: 'Create data endpoint', status: 'completed' }
-    ],
-    timestamp: new Date().toISOString()
-  });
+// Mock data endpoint as specified in README
+router.get('/data', validateJWT, async (req, res) => {
+  try {
+    // Return mock data as specified in requirements
+    res.json({
+      success: true,
+      data: {
+        message: "Protected data retrieved successfully",
+        timestamp: new Date().toISOString(),
+        user: req.user.client_id,
+        mockData: [
+          { id: 1, name: "Sample Item 1" },
+          { id: 2, name: "Sample Item 2" },
+          { id: 3, name: "Sample Item 3" }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching data:', error);
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
 });
 
-module.exports = router; 
+// Task routes
+router.get('/tasks', validateJWT, async (req, res) => {
+  try {
+    await connectRedis();
+    const tasks = await redisClient.lRange(`tasks:${req.user.client_id}`, 0, -1);
+    res.json({ tasks: tasks.map(task => JSON.parse(task)) });
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+router.post('/tasks', validateJWT, async (req, res) => {
+  try {
+    const { title, description } = req.body;
+    if (!title) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    const task = {
+      id: Date.now().toString(),
+      title,
+      description,
+      created_at: new Date().toISOString(),
+      created_by: req.user.client_id
+    };
+
+    await connectRedis();
+    await redisClient.lPush(`tasks:${req.user.client_id}`, JSON.stringify(task));
+    res.status(201).json(task);
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ error: 'Failed to create task' });
+  }
+});
+
+// Token revocation endpoint
+router.post('/logout', validateJWT, async (req, res) => {
+  try {
+    const token = req.headers.authorization.slice(7);
+    await revokeToken(token);
+    res.json({ message: 'Successfully logged out' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Failed to logout' });
+  }
+});
+
+module.exports = router;
