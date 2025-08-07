@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const oauthRoutes = require('./routes/oauth');
 const dataRoutes = require('./routes/tasks');
+const { initializeDatabase } = require('./database/db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,9 +37,22 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 OAuth & JWT Workshop server running on port ${PORT}`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
-});
+async function startServer() {
+  try {
+    // Initialize database first
+    await initializeDatabase();
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 OAuth & JWT Workshop server running on port ${PORT}`);
+      console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+      console.log(`🗄️  PostgreSQL database connected and initialized`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 module.exports = app; 

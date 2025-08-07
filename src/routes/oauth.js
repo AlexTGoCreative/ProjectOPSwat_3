@@ -3,6 +3,7 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const { generateToken, storeToken } = require('../utils/jwtUtils');
+const { validateOAuthClient } = require('../database/db');
 
 router.post('/token', async (req, res) => {
   try {
@@ -16,25 +17,34 @@ router.post('/token', async (req, res) => {
       });
     }
 
+    // Check oauth.txt file
     const oauthPath = path.join(__dirname, '../../oauth.txt');
-    if (!fs.existsSync(oauthPath)) {
-      return res.status(500).json({ 
-        error: 'Configuration error',
-        message: 'OAuth configuration file not found'
+    let fileValid = false;
+    
+    if (fs.existsSync(oauthPath)) {
+      const clients = fs.readFileSync(oauthPath, 'utf-8')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+        
+      fileValid = clients.some(line => {
+        const [id, secret] = line.split(':');
+        return id === clientId && secret === clientSecret;
       });
+    } else {
+      console.warn('OAuth configuration file not found');
     }
 
-    const clients = fs.readFileSync(oauthPath, 'utf-8')
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean);
+    // Check PostgreSQL database
+    let dbValid = false;
+    try {
+      dbValid = await validateOAuthClient(clientId, clientSecret);
+    } catch (error) {
+      console.error('Database error during OAuth validation:', error);
+    }
 
-    const valid = clients.some(line => {
-      const [id, secret] = line.split(':');
-      return id === clientId && secret === clientSecret;
-    });
-
-    if (!valid) {
+    // Client is valid if either file or database validation passes
+    if (!fileValid && !dbValid) {
       return res.status(401).json({ 
         error: 'Invalid credentials',
         message: 'Invalid client_id or client_secret'
@@ -67,4 +77,4 @@ router.post('/token', async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
