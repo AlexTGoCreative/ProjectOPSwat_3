@@ -21,8 +21,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Routes
+// OAuth 2.0 Token Route
 app.use('/oauth', oauthRoutes);
+
+// JWT-protected Data Route
 app.use('/', dataRoutes);
 
 // 404 handler

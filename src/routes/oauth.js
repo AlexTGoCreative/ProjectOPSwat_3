@@ -28,10 +28,11 @@ router.post('/token', (req, res) => {
   const secret = process.env.JWT_SECRET || 'default_secret';
   const expiresIn = 60; // 1 minute
   const token = jwt.sign(payload, secret, { expiresIn });
-  const expiryTimestamp = Math.floor(Date.now() / 1000) + expiresIn;
+  // Store expiry in milliseconds for compatibility with validation logic
+  const expiryTimestampMs = Date.now() + expiresIn * 1000;
 
   const jwtPath = path.join(__dirname, '../../jwt.txt');
-  fs.appendFileSync(jwtPath, `${token}:${expiryTimestamp}\n`);
+  fs.appendFileSync(jwtPath, `${token}:${expiryTimestampMs}\n`);
 
   res.json({
     access_token: token,

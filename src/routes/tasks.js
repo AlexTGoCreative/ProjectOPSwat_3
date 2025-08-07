@@ -10,6 +10,7 @@ function readStoredTokens() {
   try {
     const jwtFilePath = path.join(__dirname, '../../jwt.txt');
     if (!fs.existsSync(jwtFilePath)) {
+      console.warn('jwt.txt file does not exist at', jwtFilePath);
       return [];
     }
     const content = fs.readFileSync(jwtFilePath, 'utf8');
@@ -17,8 +18,12 @@ function readStoredTokens() {
       .filter(line => line.trim())
       .map(line => {
         const [token, expiry] = line.split(':');
+        if (!token || !expiry || isNaN(parseInt(expiry))) {
+          return null;
+        }
         return { token: token.trim(), expiry: parseInt(expiry) };
-      });
+      })
+      .filter(Boolean);
   } catch (error) {
     console.error('Error reading jwt.txt:', error);
     return [];
@@ -55,6 +60,8 @@ function validateJWT(req, res, next) {
         message: 'Please provide a valid JWT token'
       });
     }
+
+    console.log('Validating token:', token);
 
     if (!isTokenValid(token)) {
       return res.status(401).json({
