@@ -2,10 +2,18 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 // Create PostgreSQL connection pool
-const pool = new Pool({
+console.log('Database configuration:', {
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'workshop_oauth',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD ? '***' : undefined
+});
+
+let pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: 'postgres', // First connect to default database
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
 });
@@ -75,6 +83,30 @@ async function initializeDatabase() {
   try {
     console.log('🔄 Initializing database...');
     
+    // First, check if our database exists
+    const checkDbQuery = `
+      SELECT 1 FROM pg_database WHERE datname = 'workshop_oauth'
+    `;
+    
+    const dbExists = await pool.query(checkDbQuery);
+    
+    if (dbExists.rows.length === 0) {
+      console.log('Creating database workshop_oauth...');
+      await pool.query('CREATE DATABASE workshop_oauth');
+    }
+    
+    // Close the connection to postgres database
+    await pool.end();
+    
+    // Create new connection to our database
+    pool = new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      database: 'workshop_oauth',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD,
+    });
+    
     // Create oauth_clients table
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS oauth_clients (
@@ -94,14 +126,15 @@ async function initializeDatabase() {
     const countResult = await pool.query(countQuery);
     const clientCount = parseInt(countResult.rows[0].count);
     
+    const sampleClients = [
+      ['client_id_1', 'client_secret_1'],
+      ['client_id_2', 'client_secret_2'],
+      ['client_id_3', 'client_secret_3'],
+      ['workshop_client', 'workshop_secret_123']
+    ];
+    
     if (clientCount === 0) {
       console.log('🔄 Adding sample OAuth clients...');
-      const sampleClients = [
-        ['client_id_1', 'client_secret_1'],
-        ['client_id_2', 'client_secret_2'],
-        ['client_id_3', 'client_secret_3'],
-        ['workshop_client', 'workshop_secret_123']
-      ];
       
       for (const [clientId, clientSecret] of sampleClients) {
         await addOAuthClient(clientId, clientSecret);
